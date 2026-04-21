@@ -1,7 +1,7 @@
-![scrobbling in cliamp](https://github.com/tetsuo76/cliamp-remotecontrol/blob/main/screenshot.png?raw=true)
-
 # cliamp-remotecontrol v1.0
 A basic web UI/remote control for the [cliamp](https://github.com/bjarneo/cliamp) music player
+
+![scrobbling in cliamp](https://github.com/tetsuo76/cliamp-remotecontrol/blob/main/screenshot.png?raw=true)
 
 **Instructions**:
 
