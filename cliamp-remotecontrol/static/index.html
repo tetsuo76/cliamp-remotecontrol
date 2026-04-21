@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLIMP — Remote Control v1.0</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <div class="shell">
+
+    <div class="power-overlay" id="power">
+      <div class="power-core"></div>
+      <div class="power-line"></div>
+      <div class="power-fill"></div>
+    </div>
+
+    <div class="boot-overlay" id="boot">
+      <div class="boot-terminal" id="boot-text"></div>
+    </div>
+
+    <div id="ui" style="opacity:0; transition:0.4s;">
+      <div class="shell-top">
+        <div class="brand-wrap">
+          <div class="brand-title" id="brand-title">CLIAMP</div>
+
+          <div class="header-visualizer stopped" id="header-visualizer" aria-hidden="true">
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+            <span class="vbar"></span>
+          </div>
+
+          <div class="brand-subtitle">Remote Control v1.0</div>
+        </div>
+      </div>
+
+      <div class="content">
+        <pre class="ascii" id="now-playing-header">NOW PLAYING</pre>
+
+        <div class="box">
+          <div id="now-playing">Nothing Playing</div>
+
+          <div class="status">
+            EQ <span id="eq-inline">[FLAT]</span> ·
+            Shuffle <span id="shuffle-inline">[OFF]</span> ·
+            Repeat <span id="repeat-inline">[OFF]</span>
+          </div>
+
+          <div class="vol-bar">
+            <div id="vol-fill"></div>
+          </div>
+          <div id="vol-text">0.0 dB</div>
+        </div>
+
+        <div class="controls">
+          <div class="row transport">
+            <button onclick="send('prev')">⏮</button>
+            <button onclick="send('toggle')">⏯</button>
+            <button onclick="send('next')">⏭</button>
+            <button class="stop-btn" onclick="send('stop')">■</button>
+          </div>
+
+          <div class="row volume">
+            <button onclick="send('volume_down')">Vol −</button>
+            <button onclick="send('volume_up')">Vol +</button>
+            <button onclick="send('mute')">-30dB</button>
+            <button onclick="send('volume_zero')">+0dB</button>
+          </div>
+
+          <div class="row bottom">
+            <button class="eq-btn" id="eq-btn" onclick="send('cycle_eq')">EQ</button>
+            <button id="shuffle-btn" onclick="send('shuffle')">Shuffle</button>
+            <button id="repeat-btn" onclick="send('repeat')">Repeat</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
