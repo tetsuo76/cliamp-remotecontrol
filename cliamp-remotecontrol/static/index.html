@@ -42,6 +42,17 @@
 
           <div class="brand-subtitle">Remote Control v1.0</div>
         </div>
+        <button class="listen-btn" id="listen-btn" type="button" disabled aria-expanded="false">
+          Listen
+        </button>
+      </div>
+
+      <div class="listen-panel" id="listen-panel" hidden>
+        <div class="listen-panel-head">
+          <span id="listen-status">Listening unavailable for this track</span>
+          <button class="listen-close" id="listen-close" type="button" aria-label="Close listen panel">×</button>
+        </div>
+        <audio id="listen-audio" controls preload="none"></audio>
       </div>
 
       <div class="content">

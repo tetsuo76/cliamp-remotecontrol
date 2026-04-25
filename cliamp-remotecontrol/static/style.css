@@ -80,6 +80,10 @@ body {
     border-bottom: 1px solid var(--line);
     position: relative;
     z-index: 4;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
 }
 
 .brand-wrap {
@@ -104,6 +108,57 @@ body {
     letter-spacing: 0.08em;
     opacity: 0.85;
     margin-top: 1px;
+}
+
+.listen-btn {
+    flex: 0 0 auto;
+    min-width: 84px;
+    padding: 9px 12px;
+    background: rgba(18, 25, 20, 0.92);
+    color: var(--muted);
+}
+
+.listen-btn.is-active {
+    color: var(--accent);
+    border-color: rgba(132, 240, 166, 0.45);
+    box-shadow: 0 0 10px rgba(132, 240, 166, 0.08);
+}
+
+.listen-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.listen-panel {
+    position: relative;
+    z-index: 4;
+    margin: 14px 18px 0;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.16);
+}
+
+.listen-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.listen-close {
+    min-width: 40px;
+    padding: 6px 10px;
+    line-height: 1;
+}
+
+#listen-audio {
+    width: 100%;
+    display: block;
+    filter: hue-rotate(58deg) saturate(0.78);
 }
 
 .header-visualizer {
@@ -259,6 +314,16 @@ button:active {
     font-size: 12px;
     margin-top: 5px;
     color: var(--muted);
+}
+
+@media (max-width: 640px) {
+    .shell-top {
+        align-items: flex-start;
+    }
+
+    .listen-btn {
+        margin-left: auto;
+    }
 }
 
 /* boot / power overlays */

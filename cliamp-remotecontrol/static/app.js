@@ -2,6 +2,111 @@ function send(cmd) {
     fetch('/api/' + cmd, { cache: 'no-store' }).then(update);
 }
 
+let listenUrl = null;
+let listenOpen = false;
+let listenReason = "Listening unavailable for this track";
+let listenVisible = true;
+
+function getListenElements() {
+    return {
+        button: document.getElementById("listen-btn"),
+        panel: document.getElementById("listen-panel"),
+        audio: document.getElementById("listen-audio"),
+        status: document.getElementById("listen-status"),
+    };
+}
+
+function setListenButtonState(enabled) {
+    const { button } = getListenElements();
+    if (!button) return;
+
+    button.disabled = !enabled;
+    button.classList.toggle("is-active", enabled);
+}
+
+function setListenVisibility(visible) {
+    const { button, panel, audio } = getListenElements();
+    if (!button || !panel || !audio) return;
+
+    listenVisible = Boolean(visible);
+    button.hidden = !listenVisible;
+
+    if (!listenVisible) {
+        listenOpen = false;
+        panel.hidden = true;
+        if (!audio.paused) audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+    }
+}
+
+function syncListenPanel() {
+    const { button, panel, audio, status } = getListenElements();
+    if (!button || !panel || !audio || !status) return;
+
+    if (!listenVisible) {
+        panel.hidden = true;
+        return;
+    }
+
+    const available = Boolean(listenUrl);
+    setListenButtonState(available);
+    button.setAttribute("aria-expanded", listenOpen ? "true" : "false");
+
+    if (!listenOpen) {
+        panel.hidden = true;
+        status.textContent = available
+            ? "Open the panel to hear the current stream"
+            : listenReason;
+        if (!audio.paused) audio.pause();
+        return;
+    }
+
+    panel.hidden = false;
+
+    if (!available) {
+        status.textContent = listenReason;
+        audio.removeAttribute("src");
+        audio.load();
+        return;
+    }
+
+    status.textContent = "Streaming current playback";
+
+    const resolvedListenUrl = new URL(listenUrl, window.location.href).href;
+    if (audio.src !== resolvedListenUrl) {
+        audio.src = listenUrl;
+        audio.load();
+    }
+}
+
+function setListenUrl(nextUrl) {
+    const normalized = typeof nextUrl === "string" && nextUrl.trim() ? nextUrl.trim() : null;
+    if (listenUrl === normalized) return;
+
+    listenUrl = normalized;
+    syncListenPanel();
+}
+
+function setListenReason(nextReason) {
+    listenReason = typeof nextReason === "string" && nextReason.trim()
+        ? nextReason.trim()
+        : "Listening unavailable for this track";
+
+    syncListenPanel();
+}
+
+function toggleListenPanel() {
+    listenOpen = !listenOpen;
+    syncListenPanel();
+}
+
+function closeListenPanel() {
+    if (!listenOpen) return;
+    listenOpen = false;
+    syncListenPanel();
+}
+
 function setVisualizerState(stateName) {
     const visualizer = document.getElementById("header-visualizer");
     if (visualizer) {
@@ -81,6 +186,9 @@ function update() {
             const volText = document.getElementById("vol-text");
             if (volText) volText.innerText = volume.toFixed(1) + " dB";
 
+            setListenVisibility(d.listen_visible !== false);
+            setListenUrl(d.listen_url);
+            setListenReason(d.listen_reason);
             setVisualizerLevel(volume);
             syncVisualizerWidth();
         })
@@ -93,6 +201,9 @@ function update() {
 
             setVisualizerState("disconnected");
             setVisualizerLevel(-30);
+            setListenVisibility(true);
+            setListenUrl(null);
+            setListenReason("Remote disconnected");
         });
 }
 
@@ -138,21 +249,39 @@ async function runBoot() {
 
     boot.classList.add("visible");
 
-    // 👉 fetch hostname first
+    let statusData = null;
     let hostname = "";
+    let audioInterfaceDetected = false;
+    let audioInterfaceName = "";
+    let audioBackendDetected = false;
+    let audioBackendName = "pulseaudio/pipewire";
+
     try {
         const res = await fetch('/api/status', { cache: 'no-store' });
-        const data = await res.json();
-        hostname = String(data.hostname || "").toUpperCase();
+        statusData = await res.json();
+        hostname = String(statusData.hostname || "").toUpperCase();
+        audioInterfaceDetected = Boolean(statusData.audio_interface_detected);
+        audioInterfaceName = String(statusData.audio_interface_name || "").trim();
+        audioBackendDetected = Boolean(statusData.audio_backend_detected);
+        audioBackendName = String(statusData.audio_backend_name || "pulseaudio/pipewire").trim();
     } catch (e) {
         hostname = "UNKNOWN";
     }
 
+    const audioInterfaceLine = audioInterfaceDetected && audioInterfaceName
+        ? `[ok  ] audio interface ${audioInterfaceName} detected`
+        : "[failed] audio interface detection";
+
+    const audioBackendLine = audioBackendDetected
+        ? `[ok  ] ${audioBackendName} detected`
+        : `[failed] ${audioBackendName} detection`;
+
     const lines = [
         "[boot] cliamp remote control",
         "[init] loading core modules...",
-        "[init] audio interface ready",
-        "[init] ui renderer ready",
+        audioInterfaceLine,
+        audioBackendLine,
+        "[ok  ] ui renderer ready",
         "[net ] resolving socket path",
         "[net ] ~/.config/cliamp/cliamp.sock",
         hostname
@@ -195,6 +324,8 @@ function sleep(ms) {
 }
 
 window.addEventListener("resize", syncVisualizerWidth);
+document.getElementById("listen-btn")?.addEventListener("click", toggleListenPanel);
+document.getElementById("listen-close")?.addEventListener("click", closeListenPanel);
 
 startSequence();
 setInterval(update, 2000);

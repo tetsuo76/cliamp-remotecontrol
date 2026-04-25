@@ -1,12 +1,18 @@
 import json
 import os
+import shutil
 import socket
 import subprocess
-from http.server import SimpleHTTPRequestHandler, HTTPServer
+import sys
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 SOCKET_PATH = os.path.expanduser("~/.config/cliamp/cliamp.sock")
 PORT = 9000
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+STREAM_SAMPLE_RATE = 44100
+STREAM_BITRATE = "320k"
+STREAM_FORMAT = "mp3"
+STREAM_CONTENT_TYPE = "audio/mpeg"
 
 current_eq_index = 0
 EQ_NAMES = ["Flat", "Rock", "Pop", "Jazz", "Metal", "Classical"]
@@ -21,6 +27,172 @@ def debug(*args):
         print("[DEBUG]", *args, flush=True)
 
 
+def is_port_in_use(port, host="127.0.0.1"):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.2)
+            return sock.connect_ex((host, port)) == 0
+    except OSError:
+        return False
+
+
+def print_port_in_use_error(port):
+    if is_port_in_use(port):
+        print(
+            f"Error: cliamp-remote is already running on port {port}.",
+            file=sys.stderr,
+            flush=True,
+        )
+    else:
+        print(
+            f"Error: port {port} is already in use by another application.",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def first_non_empty(*values):
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def run_command(command):
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def get_listen_support():
+    if not sys.platform.startswith("linux"):
+        return {
+            "listen_supported": False,
+            "listen_reason": "Listen is only supported on Linux with PulseAudio or PipeWire",
+            "audio_backend_detected": False,
+            "audio_backend_name": "pulseaudio/pipewire",
+        }
+
+    if shutil.which("ffmpeg") is None:
+        return {
+            "listen_supported": False,
+            "listen_reason": "ffmpeg is not installed",
+            "audio_backend_detected": False,
+            "audio_backend_name": "pulseaudio/pipewire",
+        }
+
+    if shutil.which("pactl") is None:
+        return {
+            "listen_supported": False,
+            "listen_reason": "pactl is not installed",
+            "audio_backend_detected": False,
+            "audio_backend_name": "pulseaudio/pipewire",
+        }
+
+    return {
+        "listen_supported": True,
+        "listen_reason": None,
+        "audio_backend_detected": True,
+        "audio_backend_name": "pulseaudio/pipewire",
+    }
+
+
+def get_cliamp_active_device():
+    try:
+        result = run_command(["cliamp", "device", "list"])
+        if result.returncode != 0:
+            debug("device list failed", result.stderr.strip())
+            return None
+
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("* "):
+                return stripped[2:].strip()
+    except Exception as e:
+        debug("get_cliamp_active_device failed", repr(e))
+
+    return None
+
+
+def get_monitor_sources():
+    try:
+        result = run_command(["pactl", "list", "short", "sources"])
+        if result.returncode != 0:
+            debug("pactl list short sources failed", result.stderr.strip())
+            return []
+
+        sources = []
+        for line in result.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                sources.append(parts[1].strip())
+        return sources
+    except Exception as e:
+        debug("get_monitor_sources failed", repr(e))
+        return []
+
+
+def get_listen_info():
+    support = get_listen_support()
+    if not support["listen_supported"]:
+        return {
+            "listen_supported": False,
+            "listen_visible": False,
+            "listen_url": None,
+            "listen_reason": support["listen_reason"],
+            "listen_source": None,
+            "audio_interface_detected": False,
+            "audio_interface_name": None,
+            "audio_backend_detected": support["audio_backend_detected"],
+            "audio_backend_name": support["audio_backend_name"],
+        }
+
+    device = get_cliamp_active_device()
+    if not device:
+        return {
+            "listen_supported": True,
+            "listen_visible": True,
+            "listen_url": None,
+            "listen_reason": "No active cliamp output device found",
+            "listen_source": None,
+            "audio_interface_detected": False,
+            "audio_interface_name": None,
+            "audio_backend_detected": support["audio_backend_detected"],
+            "audio_backend_name": support["audio_backend_name"],
+        }
+
+    monitor_source = f"{device}.monitor"
+    sources = get_monitor_sources()
+
+    if monitor_source not in sources:
+        return {
+            "listen_supported": True,
+            "listen_visible": True,
+            "listen_url": None,
+            "listen_reason": f"No monitor source found for {device}",
+            "listen_source": None,
+            "audio_interface_detected": True,
+            "audio_interface_name": device,
+            "audio_backend_detected": support["audio_backend_detected"],
+            "audio_backend_name": support["audio_backend_name"],
+        }
+
+    return {
+        "listen_supported": True,
+        "listen_visible": True,
+        "listen_url": "/listen",
+        "listen_reason": f"Streaming {device}",
+        "listen_source": monitor_source,
+        "audio_interface_detected": True,
+        "audio_interface_name": device,
+        "audio_backend_detected": support["audio_backend_detected"],
+        "audio_backend_name": support["audio_backend_name"],
+    }
+
+
 class RemoteHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
@@ -33,6 +205,10 @@ class RemoteHandler(SimpleHTTPRequestHandler):
                 status = self.get_status()
                 debug("status response", status)
                 self.respond_json(status)
+                return
+
+            if self.path == "/listen":
+                self.stream_device_audio()
                 return
 
             if self.path.startswith("/api/"):
@@ -150,12 +326,7 @@ class RemoteHandler(SimpleHTTPRequestHandler):
 
     def run_cliamp_command(self, command):
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=False
-            )
+            result = run_command(command)
             debug("shell returncode", result.returncode)
             if result.stdout:
                 debug("shell stdout", result.stdout.strip())
@@ -180,6 +351,7 @@ class RemoteHandler(SimpleHTTPRequestHandler):
 
     def get_status(self):
         global current_eq_index, current_volume_db
+        listen_info = get_listen_info()
 
         try:
             debug("status socket connect", SOCKET_PATH)
@@ -219,6 +391,14 @@ class RemoteHandler(SimpleHTTPRequestHandler):
                 "state": data.get("state", "stopped"),
                 "connected": True,
                 "hostname": HOSTNAME,
+                "listen_supported": listen_info["listen_supported"],
+                "listen_visible": listen_info["listen_visible"],
+                "listen_url": listen_info["listen_url"],
+                "listen_reason": listen_info["listen_reason"],
+                "audio_interface_detected": listen_info["audio_interface_detected"],
+                "audio_interface_name": listen_info["audio_interface_name"],
+                "audio_backend_detected": listen_info["audio_backend_detected"],
+                "audio_backend_name": listen_info["audio_backend_name"],
             }
 
         except Exception as e:
@@ -232,7 +412,73 @@ class RemoteHandler(SimpleHTTPRequestHandler):
                 "eq_name": "FLAT",
                 "state": "stopped",
                 "connected": False,
+                "listen_supported": listen_info["listen_supported"],
+                "listen_visible": listen_info["listen_visible"],
+                "listen_url": listen_info["listen_url"],
+                "listen_reason": listen_info["listen_reason"],
+                "audio_interface_detected": listen_info["audio_interface_detected"],
+                "audio_interface_name": listen_info["audio_interface_name"],
+                "audio_backend_detected": listen_info["audio_backend_detected"],
+                "audio_backend_name": listen_info["audio_backend_name"],
             }
+
+    def stream_device_audio(self):
+        listen_info = get_listen_info()
+        source = listen_info.get("listen_source")
+
+        if not source:
+            body = (listen_info.get("listen_reason") or "Listening unavailable").encode("utf-8")
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.safe_write(body)
+            return
+
+        command = [
+            "ffmpeg",
+            "-loglevel", "error",
+            "-f", "pulse",
+            "-i", source,
+            "-ac", "2",
+            "-ar", str(STREAM_SAMPLE_RATE),
+            "-b:a", STREAM_BITRATE,
+            "-f", STREAM_FORMAT,
+            "pipe:1",
+        ]
+
+        process = None
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.send_response(200)
+            self.send_header("Content-Type", STREAM_CONTENT_TYPE)
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+
+            while True:
+                chunk = process.stdout.read(8192)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            debug("listen stream client disconnected")
+        except Exception as e:
+            debug("stream_device_audio failed", repr(e))
+        finally:
+            if process is not None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except Exception:
+                    process.kill()
+                    process.wait()
 
     def log_message(self, format, *args):
         if DEBUG:
@@ -241,7 +487,16 @@ class RemoteHandler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     debug("starting server on port", PORT)
+    if is_port_in_use(PORT):
+        print_port_in_use_error(PORT)
+        sys.exit(1)
+
     try:
-        HTTPServer(("0.0.0.0", PORT), RemoteHandler).serve_forever()
+        ThreadingHTTPServer(("0.0.0.0", PORT), RemoteHandler).serve_forever()
+    except OSError as e:
+        if e.errno == 98:
+            print_port_in_use_error(PORT)
+            sys.exit(1)
+        raise
     except KeyboardInterrupt:
         debug("server stopped")
