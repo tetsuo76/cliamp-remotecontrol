@@ -14,7 +14,7 @@ A basic web UI/remote control for the [cliamp](https://github.com/bjarneo/cliamp
 - cliamp installed and running
 - A working cliamp Unix socket at ~/.config/cliamp/cliamp.sock
 
-## Requiremtns (for Listen feature)
+## Requirements (for Listen feature)
 - ffmpeg installed
 - pactl installed
 - PulseAudio or PipeWire with monitor sources enabled
